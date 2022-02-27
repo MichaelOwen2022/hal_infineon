@@ -36,6 +36,11 @@ devices refers to PSOC6 devices and vice versa. The PDL integrates device header
 files, startup code, and peripheral drivers into a single package. The PDL supports
 the PSoC 6 device family.
 
+- whd-bsp-integration - This library provides some convenience functions for
+connecting the WiFi Host Driver (WHD) library to a Board Support Package (BSP)
+that includes a WLAN chip. This library initializes the hardware and passes a
+reference to the communication interface on the board into WHD.
+
 - XMCLib - The XMC Peripheral Library (XMCLib) consists of low-level drivers for
 the XMC product family peripherals.
 
@@ -48,6 +53,7 @@ the XMC product family peripherals.
 | core-lib             |  1.3.0  |
 | mtb-hal-cat1         |  2.0.0  |
 | mtb-pdl-cat1         |  2.3.0  |
+| whd-bsp-integration  |  2.0.0  |
 | XMCLib               |  2.1.24 |
 
 
