@@ -8,6 +8,16 @@ implementation of Zephyr drivers for Infineon devices.
 
 The Zephyr hal module for an Infineon devices uses below assets:
 
+- abstraction-rtos - the RTOS abstraction layer provides simple RTOS services
+like threads, semaphores, mutexes, queues, and timers. It is not intended to be
+a full features RTOS interface, but the provide just enough support to allow for
+RTOS independent drivers and middleware. This allows middleware applications to
+be as portable as possible within ModusToolbox™. This library provides a unified
+API around the actual RTOS. This allows middleware libraries to be written once
+independent of the RTOS actually selected for the application. The abstraction
+layer provides access to all the standard RTOS resources listed in the feature
+section below.
+
 - core-lib - the Core Library provides basic types and utilities that can be used
 between different devices. This allows different libraries to share common items
 between themselves to avoid reimplementation and promote consistency.
@@ -34,6 +44,7 @@ the XMC product family peripherals.
 
 |  Asset               | Version |
 | ---------------------| ------- |
+| abstraction-rtos     |  1.5.0  |
 | core-lib             |  1.3.0  |
 | mtb-hal-cat1         |  2.0.0  |
 | mtb-pdl-cat1         |  2.3.0  |
