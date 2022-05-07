@@ -6,7 +6,7 @@
  *
  ***************************************************************************************************
  * \copyright
- * Copyright 2018-2022 Cypress Semiconductor Corporation (an Infineon company) or
+ * Copyright 2018-2021 Cypress Semiconductor Corporation (an Infineon company) or
  * an affiliate of Cypress Semiconductor Corporation
  *
  * SPDX-License-Identifier: Apache-2.0
@@ -27,7 +27,6 @@
 #include <stdlib.h>
 #include <cy_utils.h>
 #include <cyabs_rtos.h>
-#include "cyabs_rtos_internal.h"
 
 #if defined(__cplusplus)
 extern "C" {
@@ -131,7 +130,7 @@ static uint32_t convert_ms_to_ticks(cy_time_t timeout_ms)
 *                 Threads
 ******************************************************/
 
-cy_rslt_t cy_rtos_thread_create(cy_thread_t* thread, cy_thread_entry_fn_t entry_function,
+cy_rslt_t cy_rtos_create_thread(cy_thread_t* thread, cy_thread_entry_fn_t entry_function,
                                 const char* name, void* stack, uint32_t stack_size,
                                 cy_thread_priority_t priority, cy_thread_arg_t arg)
 {
@@ -193,9 +192,9 @@ cy_rslt_t cy_rtos_thread_create(cy_thread_t* thread, cy_thread_entry_fn_t entry_
 
 
 //--------------------------------------------------------------------------------------------------
-// cy_rtos_thread_exit
+// cy_rtos_exit_thread
 //--------------------------------------------------------------------------------------------------
-cy_rslt_t cy_rtos_thread_exit(void)
+cy_rslt_t cy_rtos_exit_thread(void)
 {
     // This does not have a return statement because the osThreadExit() function * does not return
     // so the return statement would be unreachable and causes a * warning for IAR compiler.
@@ -204,9 +203,9 @@ cy_rslt_t cy_rtos_thread_exit(void)
 
 
 //--------------------------------------------------------------------------------------------------
-// cy_rtos_thread_terminate
+// cy_rtos_terminate_thread
 //--------------------------------------------------------------------------------------------------
-cy_rslt_t cy_rtos_thread_terminate(cy_thread_t* thread)
+cy_rslt_t cy_rtos_terminate_thread(cy_thread_t* thread)
 {
     cy_rslt_t       status;
     cy_rtos_error_t statusInternal;
@@ -226,9 +225,9 @@ cy_rslt_t cy_rtos_thread_terminate(cy_thread_t* thread)
 
 
 //--------------------------------------------------------------------------------------------------
-// cy_rtos_thread_is_running
+// cy_rtos_is_thread_running
 //--------------------------------------------------------------------------------------------------
-cy_rslt_t cy_rtos_thread_is_running(cy_thread_t* thread, bool* running)
+cy_rslt_t cy_rtos_is_thread_running(cy_thread_t* thread, bool* running)
 {
     cy_rslt_t status = CY_RSLT_SUCCESS;
 
@@ -246,9 +245,9 @@ cy_rslt_t cy_rtos_thread_is_running(cy_thread_t* thread, bool* running)
 
 
 //--------------------------------------------------------------------------------------------------
-// cy_rtos_thread_get_state
+// cy_rtos_get_thread_state
 //--------------------------------------------------------------------------------------------------
-cy_rslt_t cy_rtos_thread_get_state(cy_thread_t* thread, cy_thread_state_t* state)
+cy_rslt_t cy_rtos_get_thread_state(cy_thread_t* thread, cy_thread_state_t* state)
 {
     cy_rslt_t status = CY_RSLT_SUCCESS;
 
@@ -293,9 +292,9 @@ cy_rslt_t cy_rtos_thread_get_state(cy_thread_t* thread, cy_thread_state_t* state
 
 
 //--------------------------------------------------------------------------------------------------
-// cy_rtos_thread_join
+// cy_rtos_join_thread
 //--------------------------------------------------------------------------------------------------
-cy_rslt_t cy_rtos_thread_join(cy_thread_t* thread)
+cy_rslt_t cy_rtos_join_thread(cy_thread_t* thread)
 {
     cy_rslt_t       status;
     cy_rtos_error_t statusInternal;
@@ -321,9 +320,9 @@ cy_rslt_t cy_rtos_thread_join(cy_thread_t* thread)
 
 
 //--------------------------------------------------------------------------------------------------
-// cy_rtos_thread_get_handle
+// cy_rtos_get_thread_handle
 //--------------------------------------------------------------------------------------------------
-cy_rslt_t cy_rtos_thread_get_handle(cy_thread_t* thread)
+cy_rslt_t cy_rtos_get_thread_handle(cy_thread_t* thread)
 {
     cy_rslt_t status = CY_RSLT_SUCCESS;
 
@@ -341,9 +340,9 @@ cy_rslt_t cy_rtos_thread_get_handle(cy_thread_t* thread)
 
 
 //--------------------------------------------------------------------------------------------------
-// cy_rtos_thread_wait_notification
+// cy_rtos_wait_thread_notification
 //--------------------------------------------------------------------------------------------------
-cy_rslt_t cy_rtos_thread_wait_notification(cy_time_t timeout_ms)
+cy_rslt_t cy_rtos_wait_thread_notification(cy_time_t timeout_ms)
 {
     uint32_t ret;
     cy_rslt_t status = CY_RSLT_SUCCESS;
@@ -359,13 +358,14 @@ cy_rslt_t cy_rtos_thread_wait_notification(cy_time_t timeout_ms)
 
 
 //--------------------------------------------------------------------------------------------------
-// cy_rtos_thread_set_notification
+// cy_rtos_set_thread_notification
 //--------------------------------------------------------------------------------------------------
-cy_rslt_t cy_rtos_thread_set_notification(cy_thread_t* thread)
+cy_rslt_t cy_rtos_set_thread_notification(cy_thread_t* thread, bool in_isr)
 {
     cy_rslt_t status = CY_RSLT_SUCCESS;
     uint32_t ret;
 
+    (void)in_isr;
     if (thread == NULL)
     {
         status = CY_RTOS_BAD_PARAM;
@@ -391,7 +391,7 @@ cy_rslt_t cy_rtos_thread_set_notification(cy_thread_t* thread)
 *                 Mutexes
 ******************************************************/
 
-cy_rslt_t cy_rtos_mutex_init(cy_mutex_t* mutex, bool recursive)
+cy_rslt_t cy_rtos_init_mutex2(cy_mutex_t* mutex, bool recursive)
 {
     cy_rslt_t     status;
     osMutexAttr_t attr;
@@ -429,9 +429,9 @@ cy_rslt_t cy_rtos_mutex_init(cy_mutex_t* mutex, bool recursive)
 
 
 //--------------------------------------------------------------------------------------------------
-// cy_rtos_mutex_get
+// cy_rtos_get_mutex
 //--------------------------------------------------------------------------------------------------
-cy_rslt_t cy_rtos_mutex_get(cy_mutex_t* mutex, cy_time_t timeout_ms)
+cy_rslt_t cy_rtos_get_mutex(cy_mutex_t* mutex, cy_time_t timeout_ms)
 {
     cy_rslt_t       status;
     cy_rtos_error_t statusInternal;
@@ -451,9 +451,9 @@ cy_rslt_t cy_rtos_mutex_get(cy_mutex_t* mutex, cy_time_t timeout_ms)
 
 
 //--------------------------------------------------------------------------------------------------
-// cy_rtos_mutex_set
+// cy_rtos_set_mutex
 //--------------------------------------------------------------------------------------------------
-cy_rslt_t cy_rtos_mutex_set(cy_mutex_t* mutex)
+cy_rslt_t cy_rtos_set_mutex(cy_mutex_t* mutex)
 {
     cy_rslt_t       status;
     cy_rtos_error_t statusInternal;
@@ -473,9 +473,9 @@ cy_rslt_t cy_rtos_mutex_set(cy_mutex_t* mutex)
 
 
 //--------------------------------------------------------------------------------------------------
-// cy_rtos_mutex_deinit
+// cy_rtos_deinit_mutex
 //--------------------------------------------------------------------------------------------------
-cy_rslt_t cy_rtos_mutex_deinit(cy_mutex_t* mutex)
+cy_rslt_t cy_rtos_deinit_mutex(cy_mutex_t* mutex)
 {
     cy_rslt_t       status;
     cy_rtos_error_t statusInternal;
@@ -504,7 +504,7 @@ cy_rslt_t cy_rtos_mutex_deinit(cy_mutex_t* mutex)
 *                 Semaphores
 ******************************************************/
 
-cy_rslt_t cy_rtos_semaphore_init(cy_semaphore_t* semaphore, uint32_t maxcount, uint32_t initcount)
+cy_rslt_t cy_rtos_init_semaphore(cy_semaphore_t* semaphore, uint32_t maxcount, uint32_t initcount)
 {
     cy_rslt_t         status;
     osSemaphoreAttr_t attr;
@@ -538,13 +538,13 @@ cy_rslt_t cy_rtos_semaphore_init(cy_semaphore_t* semaphore, uint32_t maxcount, u
 
 
 //--------------------------------------------------------------------------------------------------
-// cy_rtos_semaphore_get
+// cy_rtos_get_semaphore
 //--------------------------------------------------------------------------------------------------
-cy_rslt_t cy_rtos_semaphore_get(cy_semaphore_t* semaphore, cy_time_t timeout_ms)
+cy_rslt_t cy_rtos_get_semaphore(cy_semaphore_t* semaphore, cy_time_t timeout_ms, bool in_isr)
 {
     cy_rslt_t       status = CY_RSLT_SUCCESS;
     cy_rtos_error_t statusInternal;
-    bool in_isr = is_in_isr();
+
     // Based on documentation when osSemaphoreAcquire is called from ISR timeout must be zero.
     // https://www.keil.com/pack/doc/CMSIS/RTOS2/html/group__CMSIS__RTOS__SemaphoreMgmt.html#ga7e94c8b242a0c81f2cc79ec22895c87b
     if ((semaphore == NULL) || (in_isr && (timeout_ms != 0)))
@@ -562,12 +562,13 @@ cy_rslt_t cy_rtos_semaphore_get(cy_semaphore_t* semaphore, cy_time_t timeout_ms)
 
 
 //--------------------------------------------------------------------------------------------------
-// cy_rtos_semaphore_set
+// cy_rtos_set_semaphore
 //--------------------------------------------------------------------------------------------------
-cy_rslt_t cy_rtos_semaphore_set(cy_semaphore_t* semaphore)
+cy_rslt_t cy_rtos_set_semaphore(cy_semaphore_t* semaphore, bool in_isr)
 {
     cy_rslt_t       status = CY_RSLT_SUCCESS;
     cy_rtos_error_t statusInternal;
+    (void)in_isr; // Unused parameter in this implementation
 
     if (semaphore == NULL)
     {
@@ -584,9 +585,9 @@ cy_rslt_t cy_rtos_semaphore_set(cy_semaphore_t* semaphore)
 
 
 //--------------------------------------------------------------------------------------------------
-// cy_rtos_semaphore_get_count
+// cy_rtos_get_count_semaphore
 //--------------------------------------------------------------------------------------------------
-cy_rslt_t cy_rtos_semaphore_get_count(cy_semaphore_t* semaphore, size_t* count)
+cy_rslt_t cy_rtos_get_count_semaphore(cy_semaphore_t* semaphore, size_t* count)
 {
     cy_rslt_t status;
     if ((semaphore == NULL) || (count == NULL))
@@ -603,7 +604,7 @@ cy_rslt_t cy_rtos_semaphore_get_count(cy_semaphore_t* semaphore, size_t* count)
 
 
 //--------------------------------------------------------------------------------------------------
-// cy_rtos_semaphore_deinit
+// cy_rtos_deinit_semaphore
 //--------------------------------------------------------------------------------------------------
 cy_rslt_t cy_rtos_deinit_semaphore(cy_semaphore_t* semaphore)
 {
@@ -637,9 +638,9 @@ cy_rslt_t cy_rtos_deinit_semaphore(cy_semaphore_t* semaphore)
 #define CY_RTOS_EVENT_FLAGS         0x7FFFFFFFUL
 
 //--------------------------------------------------------------------------------------------------
-// cy_rtos_event_init
+// cy_rtos_init_event
 //--------------------------------------------------------------------------------------------------
-cy_rslt_t cy_rtos_event_init(cy_event_t* event)
+cy_rslt_t cy_rtos_init_event(cy_event_t* event)
 {
     cy_rslt_t          status;
     osEventFlagsAttr_t attr;
@@ -673,12 +674,13 @@ cy_rslt_t cy_rtos_event_init(cy_event_t* event)
 
 
 //--------------------------------------------------------------------------------------------------
-// cy_rtos_event_setbits
+// cy_rtos_setbits_event
 //--------------------------------------------------------------------------------------------------
-cy_rslt_t cy_rtos_event_setbits(cy_event_t* event, uint32_t bits)
+cy_rslt_t cy_rtos_setbits_event(cy_event_t* event, uint32_t bits, bool in_isr)
 {
     cy_rslt_t       status = CY_RSLT_SUCCESS;
     cy_rtos_error_t statusInternal;
+    (void)in_isr; // Unused parameter in this implementation
 
     if (event == NULL)
     {
@@ -698,12 +700,13 @@ cy_rslt_t cy_rtos_event_setbits(cy_event_t* event, uint32_t bits)
 
 
 //--------------------------------------------------------------------------------------------------
-// cy_rtos_event_clearbits
+// cy_rtos_clearbits_event
 //--------------------------------------------------------------------------------------------------
-cy_rslt_t cy_rtos_event_clearbits(cy_event_t* event, uint32_t bits)
+cy_rslt_t cy_rtos_clearbits_event(cy_event_t* event, uint32_t bits, bool in_isr)
 {
     cy_rslt_t       status = CY_RSLT_SUCCESS;
     cy_rtos_error_t statusInternal;
+    (void)in_isr; // Unused parameter in this implementation
 
     if (event == NULL)
     {
@@ -723,9 +726,9 @@ cy_rslt_t cy_rtos_event_clearbits(cy_event_t* event, uint32_t bits)
 
 
 //--------------------------------------------------------------------------------------------------
-// cy_rtos_event_getbits
+// cy_rtos_getbits_event
 //--------------------------------------------------------------------------------------------------
-cy_rslt_t cy_rtos_event_getbits(cy_event_t* event, uint32_t* bits)
+cy_rslt_t cy_rtos_getbits_event(cy_event_t* event, uint32_t* bits)
 {
     cy_rslt_t status = CY_RSLT_SUCCESS;
 
@@ -743,9 +746,9 @@ cy_rslt_t cy_rtos_event_getbits(cy_event_t* event, uint32_t* bits)
 
 
 //--------------------------------------------------------------------------------------------------
-// cy_rtos_event_waitbits
+// cy_rtos_waitbits_event
 //--------------------------------------------------------------------------------------------------
-cy_rslt_t cy_rtos_event_waitbits(cy_event_t* event, uint32_t* bits, bool clear, bool all,
+cy_rslt_t cy_rtos_waitbits_event(cy_event_t* event, uint32_t* bits, bool clear, bool all,
                                  cy_time_t timeout)
 {
     cy_rslt_t       status = CY_RSLT_SUCCESS;
@@ -780,9 +783,9 @@ cy_rslt_t cy_rtos_event_waitbits(cy_event_t* event, uint32_t* bits, bool clear, 
 
 
 //--------------------------------------------------------------------------------------------------
-// cy_rtos_event_deinit
+// cy_rtos_deinit_event
 //--------------------------------------------------------------------------------------------------
-cy_rslt_t cy_rtos_event_deinit(cy_event_t* event)
+cy_rslt_t cy_rtos_deinit_event(cy_event_t* event)
 {
     cy_rslt_t       status;
     cy_rtos_error_t statusInternal;
@@ -810,7 +813,7 @@ cy_rslt_t cy_rtos_event_deinit(cy_event_t* event)
 *                 Queues
 ******************************************************/
 
-cy_rslt_t cy_rtos_queue_init(cy_queue_t* queue, size_t length, size_t itemsize)
+cy_rslt_t cy_rtos_init_queue(cy_queue_t* queue, size_t length, size_t itemsize)
 {
     cy_rslt_t            status;
     osMessageQueueAttr_t attr;
@@ -854,13 +857,13 @@ cy_rslt_t cy_rtos_queue_init(cy_queue_t* queue, size_t length, size_t itemsize)
 
 
 //--------------------------------------------------------------------------------------------------
-// cy_rtos_queue_put
+// cy_rtos_put_queue
 //--------------------------------------------------------------------------------------------------
-cy_rslt_t cy_rtos_queue_put(cy_queue_t* queue, const void* item_ptr, cy_time_t timeout_ms)
+cy_rslt_t cy_rtos_put_queue(cy_queue_t* queue, const void* item_ptr, cy_time_t timeout_ms,
+                            bool in_isr)
 {
     cy_rslt_t       status;
     cy_rtos_error_t statusInternal;
-    bool in_isr = is_in_isr();
 
     if ((queue == NULL) || (item_ptr == NULL))
     {
@@ -886,13 +889,12 @@ cy_rslt_t cy_rtos_queue_put(cy_queue_t* queue, const void* item_ptr, cy_time_t t
 
 
 //--------------------------------------------------------------------------------------------------
-// cy_rtos_queue_get
+// cy_rtos_get_queue
 //--------------------------------------------------------------------------------------------------
-cy_rslt_t cy_rtos_queue_get(cy_queue_t* queue, void* item_ptr, cy_time_t timeout_ms)
+cy_rslt_t cy_rtos_get_queue(cy_queue_t* queue, void* item_ptr, cy_time_t timeout_ms, bool in_isr)
 {
     cy_rslt_t       status;
     cy_rtos_error_t statusInternal;
-    bool in_isr = is_in_isr();
 
     if ((queue == NULL) || (item_ptr == NULL))
     {
@@ -903,7 +905,7 @@ cy_rslt_t cy_rtos_queue_get(cy_queue_t* queue, void* item_ptr, cy_time_t timeout
         // Not allowed to be called in ISR if timeout != 0
         if ((!in_isr) || (in_isr && (timeout_ms == 0U)))
         {
-            statusInternal = osMessageQueueGet(*queue, (uint8_t*)item_ptr, NULL, timeout_ms);
+            statusInternal = osMessageQueueGet(*queue, (uint8_t*)item_ptr, 0u, timeout_ms);
         }
         else
         {
@@ -918,9 +920,9 @@ cy_rslt_t cy_rtos_queue_get(cy_queue_t* queue, void* item_ptr, cy_time_t timeout
 
 
 //--------------------------------------------------------------------------------------------------
-// cy_rtos_queue_count
+// cy_rtos_count_queue
 //--------------------------------------------------------------------------------------------------
-cy_rslt_t cy_rtos_queue_count(cy_queue_t* queue, size_t* num_waiting)
+cy_rslt_t cy_rtos_count_queue(cy_queue_t* queue, size_t* num_waiting)
 {
     cy_rslt_t status = CY_RSLT_SUCCESS;
 
@@ -938,9 +940,9 @@ cy_rslt_t cy_rtos_queue_count(cy_queue_t* queue, size_t* num_waiting)
 
 
 //--------------------------------------------------------------------------------------------------
-// cy_rtos_queue_space
+// cy_rtos_space_queue
 //--------------------------------------------------------------------------------------------------
-cy_rslt_t cy_rtos_queue_space(cy_queue_t* queue, size_t* num_spaces)
+cy_rslt_t cy_rtos_space_queue(cy_queue_t* queue, size_t* num_spaces)
 {
     cy_rslt_t status = CY_RSLT_SUCCESS;
 
@@ -958,9 +960,9 @@ cy_rslt_t cy_rtos_queue_space(cy_queue_t* queue, size_t* num_spaces)
 
 
 //--------------------------------------------------------------------------------------------------
-// cy_rtos_queue_reset
+// cy_rtos_reset_queue
 //--------------------------------------------------------------------------------------------------
-cy_rslt_t cy_rtos_queue_reset(cy_queue_t* queue)
+cy_rslt_t cy_rtos_reset_queue(cy_queue_t* queue)
 {
     cy_rslt_t       status;
     cy_rtos_error_t statusInternal;
@@ -980,9 +982,9 @@ cy_rslt_t cy_rtos_queue_reset(cy_queue_t* queue)
 
 
 //--------------------------------------------------------------------------------------------------
-// cy_rtos_queue_deinit
+// cy_rtos_deinit_queue
 //--------------------------------------------------------------------------------------------------
-cy_rslt_t cy_rtos_queue_deinit(cy_queue_t* queue)
+cy_rslt_t cy_rtos_deinit_queue(cy_queue_t* queue)
 {
     cy_rslt_t       status;
     cy_rtos_error_t statusInternal;
@@ -1011,7 +1013,7 @@ cy_rslt_t cy_rtos_queue_deinit(cy_queue_t* queue)
 *                 Timers
 ******************************************************/
 
-cy_rslt_t cy_rtos_timer_init(cy_timer_t* timer, cy_timer_trigger_type_t type,
+cy_rslt_t cy_rtos_init_timer(cy_timer_t* timer, cy_timer_trigger_type_t type,
                              cy_timer_callback_t fun, cy_timer_callback_arg_t arg)
 {
     cy_rslt_t     status;
@@ -1050,9 +1052,9 @@ cy_rslt_t cy_rtos_timer_init(cy_timer_t* timer, cy_timer_trigger_type_t type,
 
 
 //--------------------------------------------------------------------------------------------------
-// cy_rtos_timer_start
+// cy_rtos_start_timer
 //--------------------------------------------------------------------------------------------------
-cy_rslt_t cy_rtos_timer_start(cy_timer_t* timer, cy_time_t num_ms)
+cy_rslt_t cy_rtos_start_timer(cy_timer_t* timer, cy_time_t num_ms)
 {
     cy_rslt_t       status;
     cy_rtos_error_t statusInternal;
@@ -1072,9 +1074,9 @@ cy_rslt_t cy_rtos_timer_start(cy_timer_t* timer, cy_time_t num_ms)
 
 
 //--------------------------------------------------------------------------------------------------
-// cy_rtos_timer_stop
+// cy_rtos_stop_timer
 //--------------------------------------------------------------------------------------------------
-cy_rslt_t cy_rtos_timer_stop(cy_timer_t* timer)
+cy_rslt_t cy_rtos_stop_timer(cy_timer_t* timer)
 {
     cy_rslt_t       status;
     cy_rtos_error_t statusInternal;
@@ -1094,9 +1096,9 @@ cy_rslt_t cy_rtos_timer_stop(cy_timer_t* timer)
 
 
 //--------------------------------------------------------------------------------------------------
-// cy_rtos_timer_is_running
+// cy_rtos_is_running_timer
 //--------------------------------------------------------------------------------------------------
-cy_rslt_t cy_rtos_timer_is_running(cy_timer_t* timer, bool* state)
+cy_rslt_t cy_rtos_is_running_timer(cy_timer_t* timer, bool* state)
 {
     cy_rslt_t status = CY_RSLT_SUCCESS;
 
@@ -1114,9 +1116,9 @@ cy_rslt_t cy_rtos_timer_is_running(cy_timer_t* timer, bool* state)
 
 
 //--------------------------------------------------------------------------------------------------
-// cy_rtos_timer_deinit
+// cy_rtos_deinit_timer
 //--------------------------------------------------------------------------------------------------
-cy_rslt_t cy_rtos_timer_deinit(cy_timer_t* timer)
+cy_rslt_t cy_rtos_deinit_timer(cy_timer_t* timer)
 {
     cy_rslt_t       status;
     cy_rtos_error_t statusInternal;
@@ -1145,7 +1147,7 @@ cy_rslt_t cy_rtos_timer_deinit(cy_timer_t* timer)
 *                 Time
 ******************************************************/
 
-cy_rslt_t cy_rtos_time_get(cy_time_t* tval)
+cy_rslt_t cy_rtos_get_time(cy_time_t* tval)
 {
     cy_rslt_t status = CY_RSLT_SUCCESS;
     uint32_t  tick_freq;

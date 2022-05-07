@@ -21,7 +21,6 @@ To use the RTOS Abstraction, simply include a reference to `cyabs_rtos.h` and up
 * COMPONENTS+=RTX
 * COMPONENTS+=FREERTOS
 * COMPONENTS+=THREADX
-* COMPONENTS+=Zephyr
 
 ## Features
 
@@ -36,7 +35,6 @@ To use the RTOS Abstraction, simply include a reference to `cyabs_rtos.h` and up
     * FreeRTOS
     * RTX (CMSIS RTOS)
     * ThreadX
-	* Zephyr
 
 ## RTOS Configuration Requirements
 ### FreeRTOS
@@ -73,13 +71,6 @@ For further details on Low power support in FreeRTOS please refer to documentati
 
 ### RTX / ThreadX
 No specific requirements exist
-
-### Zephyr
-#### Thread
-If application allocates a thread stack by it self, it should use K_KERNEL_STACK macro for this.
-
-#### Mutex
-Mutexes may not be lock/unlocked in ISRs.
 
 ## Porting Notes
 In order to port to a new environment, the file cyabs_rtos_impl.h must be provided with definitions of some basic types for the abstraction layer.  The types expected to be defined are:
