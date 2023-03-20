@@ -29,7 +29,8 @@
 #include "cy_network_buffer.h"
 #include "cyabs_rtos.h"
 #include "whd_types.h"
-#include "cyhal.h"
+#include <zephyr/sd/sd.h>
+// #include "cyhal.h"
 #if defined(COMPONENT_BSP_DESIGN_MODUS) || defined(COMPONENT_CUSTOM_DESIGN_MODUS)
 #include "cycfg.h"
 #endif
@@ -136,7 +137,7 @@ extern "C" {
     // Setup configuration based on configurator or BSP, where configurator has precedence.
     #if defined(CYCFG_WIFI_HOST_WAKE_ENABLED)
         #define CY_WIFI_HOST_WAKE_GPIO  CYCFG_WIFI_HOST_WAKE_GPIO
-        #define CY_WIFI_HOST_WAKE_IRQ_EVENT CYCFG_WIFI_HOST_WAKE_IRQ_EVENT
+        //#define CY_WIFI_HOST_WAKE_IRQ_EVENT CYCFG_WIFI_HOST_WAKE_IRQ_EVENT
     #else
         // Setup host-wake pin
         #if defined(CYBSP_WIFI_HOST_WAKE)
@@ -159,7 +160,7 @@ extern "C" {
 
 // Add compatability for HAL 1.x
 #if !defined(CYHAL_API_VERSION)
-typedef cyhal_transfer_t            cyhal_sdio_transfer_type_t;
+// typedef cyhal_transfer_t            cyhal_sdio_transfer_type_t;
 #define CYHAL_SDIO_XFER_TYPE_READ   CYHAL_READ
 #define CYHAL_SDIO_XFER_TYPE_WRITE  CYHAL_WRITE
 #endif
@@ -196,12 +197,10 @@ static whd_netif_funcs_t netif_if_default =
 #if !defined(WIFI_MODE_M2M)
 static const whd_oob_config_t OOB_CONFIG =
 {
-    .host_oob_pin      = CY_WIFI_HOST_WAKE_GPIO,
-    .dev_gpio_sel      = DEFAULT_OOB_PIN,
-    .is_falling_edge   = (CY_WIFI_HOST_WAKE_IRQ_EVENT == CYHAL_GPIO_IRQ_FALL)
-        ? WHD_TRUE
-        : WHD_FALSE,
-    .intr_priority     = CY_WIFI_OOB_INTR_PRIORITY
+    .host_oob_pin    = CY_WIFI_HOST_WAKE_GPIO,
+    .dev_gpio_sel    = DEFAULT_OOB_PIN,
+    .is_falling_edge = (CY_WIFI_HOST_WAKE_IRQ_EVENT==GPIO_INT_EDGE_FALLING) ? WHD_TRUE : WHD_FALSE,
+    .intr_priority   = CY_WIFI_OOB_INTR_PRIORITY
 };
 
 
@@ -210,12 +209,13 @@ static const whd_oob_config_t OOB_CONFIG =
 //--------------------------------------------------------------------------------------------------
 static void _cybsp_wifi_reset_wifi_chip(void)
 {
+    struct gpio_dt_spec reg_on = CYBSP_WIFI_WL_REG_ON;
     // WiFi into reset
     // Allow CBUCK regulator to discharge
-    (void)cyhal_system_delay_ms(WLAN_CBUCK_DISCHARGE_MS);
+    (void)k_msleep(WLAN_CBUCK_DISCHARGE_MS);
     // WiFi out of reset
-    cyhal_gpio_write(CYBSP_WIFI_WL_REG_ON, true);
-    (void)cyhal_system_delay_ms(WLAN_POWER_UP_DELAY_MS);
+    gpio_pin_set_dt(&reg_on, 1);
+    (void)k_msleep(WLAN_POWER_UP_DELAY_MS);
 }
 
 
@@ -226,25 +226,41 @@ static void _cybsp_wifi_reset_wifi_chip(void)
 //--------------------------------------------------------------------------------------------------
 // _cybsp_wifi_sdio_try_send_cmd
 //--------------------------------------------------------------------------------------------------
-static cy_rslt_t _cybsp_wifi_sdio_try_send_cmd(cyhal_sdio_t* sdio_object,
-                                               cyhal_sdio_transfer_type_t direction,
-                                               cyhal_sdio_command_t command, uint32_t argument,
-                                               uint32_t* response)
+static int _cybsp_wifi_sdio_try_send_cmd(const struct device * sdhc,
+            enum sd_opcode opcode, uint32_t argument, uint32_t response_type, uint32_t *response)
 {
-    uint8_t   loop_count = 0;
-    cy_rslt_t result     = CYBSP_RSLT_WIFI_SDIO_ENUM_TIMEOUT;
-    do
-    {
-        result = cyhal_sdio_send_cmd(sdio_object, direction, command, argument, response);
-        if (result != CY_RSLT_SUCCESS)
-        {
-            cyhal_system_delay_ms(SDIO_RETRY_DELAY_MS);
-        }
-        loop_count++;
-    } while((result != CY_RSLT_SUCCESS) && (loop_count <= SDIO_BUS_LEVEL_MAX_RETRIES));
-    return result;
-}
+    uint8_t loop_count = 0;
+    struct sdhc_command cmd = {0};
+    int retval = 0;
 
+    cmd.opcode = opcode;
+    cmd.arg = argument;
+    cmd.response_type = response_type;
+    cmd.timeout_ms = CONFIG_SD_CMD_TIMEOUT;
+
+    do {
+        retval = sdhc_request(sdhc, &cmd, NULL);
+        if (retval != 0)
+        {
+            k_msleep(SDIO_RETRY_DELAY_MS);
+        }
+
+        loop_count++;
+    } while ((retval != 0) && (loop_count <= SDIO_BUS_LEVEL_MAX_RETRIES));
+
+    if (retval == 0)
+    {
+        if (response)
+        {
+            *response = cmd.response[0];
+        }
+    }
+
+    // printk("command[%d] argument[0x%08x] response[0x%08x] \r\n",
+    //             opcode, argument, cmd.response[0]);
+
+    return retval;
+}
 
 #if !defined(CYHAL_UDB_SDIO)
 //--------------------------------------------------------------------------------------------------
@@ -266,53 +282,105 @@ static uint32_t _cybsp_wifi_create_cmd_52_arg(uint8_t rw, uint8_t func, uint8_t 
 //--------------------------------------------------------------------------------------------------
 // _cybsp_wifi_sdio_card_init
 //--------------------------------------------------------------------------------------------------
-static cy_rslt_t _cybsp_wifi_sdio_card_init(cyhal_sdio_t* sdio_object)
+
+static int wifi_init_io(struct sd_card *card)
 {
-    cy_rslt_t result;
-    uint32_t  loop_count = 0;
-    uint32_t  rel_addr;
+	struct sdhc_io *bus_io = &card->bus_io;
+	int ret;
 
-    uint32_t response       = 0;
-    uint32_t no_argument    = 0;
+	/* SD clock should start gated */
+	bus_io->clock = 0;
+	/* SPI requires SDHC PUSH PULL, and open drain buses use more power */
+	bus_io->bus_mode = SDHC_BUSMODE_PUSHPULL;
+	bus_io->power_mode = SDHC_POWER_ON;
+	bus_io->bus_width = SDHC_BUS_WIDTH1BIT;
+	/* Cards start with legacy timing and 3.3V signalling at power on */
+	bus_io->timing = SDHC_TIMING_LEGACY;
+	bus_io->signal_voltage = SD_VOL_1_8_V;
 
-    #if !defined(CYHAL_UDB_SDIO)
-    uint32_t argument       = 0;
-    uint32_t io_num         = 0;
-    #endif /* !defined(CYHAL_UDB_SDIO) */
+	/* Toggle power to card to reset it */
+	bus_io->power_mode = SDHC_POWER_OFF;
+	ret = sdhc_set_io(card->sdhc, bus_io);
+	if (ret) {
+		return ret;
+	}
+	k_msleep(card->host_props.power_delay);
+	bus_io->power_mode = SDHC_POWER_ON;
+	ret = sdhc_set_io(card->sdhc, bus_io);
+	if (ret) {
+		return ret;
+	}
+	/* After reset or init, card voltage should be 3.3V */
+	card->card_voltage = SD_VOL_1_8_V;
+	/* Reset card flags */
+	card->flags = 0U;
+	/* Delay so card can power up */
+	k_msleep(card->host_props.power_delay);
+	/* Start bus clock */
+	bus_io->clock = SDMMC_CLOCK_400KHZ;
+	ret = sdhc_set_io(card->sdhc, bus_io);
+	if (ret) {
+		return ret;
+	}
+	return 0;
+}
+
+static int _cybsp_wifi_sdio_card_init(const struct device *sdio_object)
+{
+    uint32_t response = 0;
+    uint32_t argument = 0;
+    uint32_t no_argument = 0;
+
+    uint32_t loop_count = 0;
+    uint32_t rel_addr = 0;
+    int retval = 0;
+
+    struct sd_card *card = cybsp_get_wifi_sdio_card();
+
+    card->sdhc = sdio_object;
+
+    retval = sdhc_get_host_props(card->sdhc, &card->host_props);
+    if (retval) {
+        return retval;
+    }
+
+    /* init and lock card mutex */
+    retval = k_mutex_init(&card->lock);
+    if (retval) {
+        return retval;
+    }
+
+    retval = wifi_init_io(card);
+    if (retval) {
+        return retval;
+    }
 
     do
     {
         // Send CMD0 to set it to idle state
-        result = _cybsp_wifi_sdio_try_send_cmd(sdio_object, CYHAL_SDIO_XFER_TYPE_WRITE,
-                                               CYHAL_SDIO_CMD_GO_IDLE_STATE,
-                                               no_argument, &response /*ignored*/);
+        retval = _cybsp_wifi_sdio_try_send_cmd(sdio_object,
+            SD_GO_IDLE_STATE, no_argument,
+            (SD_RSP_TYPE_NONE | SD_SPI_RSP_TYPE_R1), &response);
 
         // CMD5.
-        if (result == CY_RSLT_SUCCESS)
+        if (retval == 0)
         {
-            result = _cybsp_wifi_sdio_try_send_cmd(sdio_object, CYHAL_SDIO_XFER_TYPE_READ,
-                                                   CYHAL_SDIO_CMD_IO_SEND_OP_COND,
-                                                   no_argument,
-                                                   &response /*ignored on UDB-based SDIO*/);
+            retval = _cybsp_wifi_sdio_try_send_cmd(sdio_object,
+                SDIO_SEND_OP_COND, no_argument, SD_RSP_TYPE_R4, &response);
         }
 
-        // UDB-based SDIO does not support io volt switch sequence
-        #if !defined(CYHAL_UDB_SDIO)
-        if (result == CY_RSLT_SUCCESS)
+        if (retval == 0)
         {
-            // Check number of IO functions, that are supported by device
-            io_num = (response >> SDIO_CMD5_RESP_IO_FUNC_POS) & SDIO_CMD5_RESP_IO_FUNC_MSK;
+            uint32_t io_num = (response >> SDIO_CMD5_RESP_IO_FUNC_POS) & SDIO_CMD5_RESP_IO_FUNC_MSK;
             if (io_num > 0)
             {
                 // Sending 1.8V switch request
                 argument = (response & SDIO_CMD5_IO_OCR_MSK) | SDIO_CMD5_S18R_BIT;
 
                 // CMD5.
-                result = _cybsp_wifi_sdio_try_send_cmd(sdio_object, CYHAL_SDIO_XFER_TYPE_WRITE,
-                                                       CYHAL_SDIO_CMD_IO_SEND_OP_COND,
-                                                       argument, &response);
-
-                if (CY_RSLT_SUCCESS == result)
+                retval = _cybsp_wifi_sdio_try_send_cmd(sdio_object,
+                    SDIO_SEND_OP_COND, argument, SD_RSP_TYPE_R4, &response);
+                if (retval == 0)
                 {
                     // IORDY = 1 (Card is ready to operate)
                     if (response & SDIO_CMD5_RESP_IORDY)
@@ -321,91 +389,64 @@ static cy_rslt_t _cybsp_wifi_sdio_card_init(cyhal_sdio_t* sdio_object)
                         if (response & SDIO_CMD5_S18R_BIT)
                         {
                             // CMD11.
-                            result = _cybsp_wifi_sdio_try_send_cmd(sdio_object,
-                                                                   CYHAL_SDIO_XFER_TYPE_WRITE,
-                                                                   CYHAL_SDIO_CMD_VOLTAGE_SWITCH,
-                                                                   no_argument,
-                                                                   &response);
-
-                            if (CY_RSLT_SUCCESS == result)
+                            retval = _cybsp_wifi_sdio_try_send_cmd(sdio_object,
+                                SD_VOL_SWITCH, no_argument, SD_RSP_TYPE_R1, &response);
+                            if (retval == 0)
                             {
-                                #if defined(CYBSP_WIFI_SDIO_VOLT_SEL)
-                                cyhal_gpio_t io_volt_sel_pin = CYBSP_WIFI_SDIO_VOLT_SEL;
-                                #else
-                                // No actual voltage switch will be done as no pin provided.
-                                cyhal_gpio_t io_volt_sel_pin = NC;
-                                #endif /* defined(CYBSP_WIFI_SDIO_VOLT_SEL) */
-
-                                // Perform voltage switch sequence
-                                // And, if pin provided, switch the voltage
-                                result = cyhal_sdio_set_io_voltage(sdio_object, io_volt_sel_pin,
-                                                                   CYHAL_SDIO_IO_VOLTAGE_1_8V,
-                                                                   CYHAL_SDIO_IO_VOLT_ACTION_SWITCH_SEQ_ONLY);
-
-                                if (CYHAL_SDIO_RSLT_ERR_UNSUPPORTED == result)
-                                {
-                                    // Changing IO voltage is not supported by current
-                                    // implementation. No reason to try again.
-                                    break;
-                                }
+                                card->flags |= SD_1800MV_FLAG;
+                                sdmmc_switch_voltage(card);
                             }
                         }
                         // Nothing to do for 'else'. 1.8V is not supported.
                     }
                     else
                     {
-                        result = CYBSP_RSLT_WIFI_SDIO_ENUM_NOT_READY;
+                        retval = CYBSP_RSLT_WIFI_SDIO_ENUM_NOT_READY;
                     }
                 }
             }
             else
             {
-                result = CYBSP_RSLT_WIFI_SDIO_ENUM_IO_NOT_SUPPORTED;
+                retval = CYBSP_RSLT_WIFI_SDIO_ENUM_IO_NOT_SUPPORTED;
                 // IO is not supported by this SD device, no reason to try enumeration again
                 break;
             }
         }
-        #endif /* !defined(CYHAL_UDB_SDIO) */
 
-        if (CY_RSLT_SUCCESS == result)
+        if (retval == 0)
         {
             // Send CMD3 to get RCA.
-            result = _cybsp_wifi_sdio_try_send_cmd(sdio_object, CYHAL_SDIO_XFER_TYPE_READ,
-                                                   CYHAL_SDIO_CMD_SEND_RELATIVE_ADDR,
-                                                   no_argument, &rel_addr);
+            retval = _cybsp_wifi_sdio_try_send_cmd(sdio_object,
+                SD_SEND_RELATIVE_ADDR, no_argument, SD_RSP_TYPE_R6, &rel_addr);
         }
 
-        if (result != CY_RSLT_SUCCESS)
+        if (retval != 0)
         {
-            cyhal_system_delay_ms(SDIO_RETRY_DELAY_MS);
+            k_msleep(SDIO_RETRY_DELAY_MS);
         }
         loop_count++;
-    } while ((result != CY_RSLT_SUCCESS) && (loop_count <= SDIO_ENUMERATION_TRIES));
+    } while ((retval != 0) && (loop_count <= SDIO_ENUMERATION_TRIES));
 
-    if (result == CY_RSLT_SUCCESS)
+    if (retval == 0)
     {
         // Send CMD7 with the returned RCA to select the card
-        result = _cybsp_wifi_sdio_try_send_cmd(sdio_object, CYHAL_SDIO_XFER_TYPE_WRITE,
-                                               CYHAL_SDIO_CMD_SELECT_CARD,
-                                               rel_addr,
-                                               &response /*ignored*/);
+        retval = _cybsp_wifi_sdio_try_send_cmd(sdio_object,
+            SD_SELECT_CARD, rel_addr, SD_RSP_TYPE_R1, &response);
     }
 
     uint32_t sdio_frequency = SDIO_FREQ_25MHZ;
 
     // use constant 25 MHz frequency for UDB-based SDIO
     // and perform supported speed check and switch for SDHC-based SDIO
-    #if !defined(CYHAL_UDB_SDIO)
-    if (result == CY_RSLT_SUCCESS)
+    if (retval == 0)
     {
         uint32_t tmp_arg = _cybsp_wifi_create_cmd_52_arg(SDIO_CMD52_ARG_RW_READ, SDIO_FUNC_NUM_0,
                                                          SDIO_CMD52_ARG_RAW_NOT_SET,
                                                          SDIO_CMD52_CCCR_SPEED_SLCT_ADDR, 0x00);
-        result = _cybsp_wifi_sdio_try_send_cmd(sdio_object, CYHAL_SDIO_XFER_TYPE_WRITE,
-                                               CYHAL_SDIO_CMD_IO_RW_DIRECT,
-                                               tmp_arg, &response);
+        retval = _cybsp_wifi_sdio_try_send_cmd(sdio_object,
+            SD_RW_IO_DIRECT, tmp_arg, SD_RSP_TYPE_R5, &response);
 
-        if (result == CY_RSLT_SUCCESS)
+        if (retval == 0)
         {
             if (SDIO_CMD52_CCCR_SPEED_SELECT_RESP_HS_SUPPORTED == response)
             {
@@ -413,11 +454,10 @@ static cy_rslt_t _cybsp_wifi_sdio_card_init(cyhal_sdio_t* sdio_object)
                                                         SDIO_CMD52_ARG_RAW_NOT_SET,
                                                         SDIO_CMD52_CCCR_SPEED_SLCT_ADDR,
                                                         SDIO_CMD52_CCCR_SPEED_SLCT_HS);
-                result = _cybsp_wifi_sdio_try_send_cmd(sdio_object, CYHAL_SDIO_XFER_TYPE_WRITE,
-                                                       CYHAL_SDIO_CMD_IO_RW_DIRECT,
-                                                       tmp_arg, &response);
+                retval = _cybsp_wifi_sdio_try_send_cmd(sdio_object,
+                    SD_RW_IO_DIRECT, tmp_arg, SD_RSP_TYPE_R5, &response);
 
-                if (result == CY_RSLT_SUCCESS)
+                if (retval == 0)
                 {
                     if (SDIO_CMD52_CCCR_SPEED_SELECT_RESP_HS_SELECTED == response)
                     {
@@ -427,19 +467,32 @@ static cy_rslt_t _cybsp_wifi_sdio_card_init(cyhal_sdio_t* sdio_object)
                 }
                 else
                 {
-                    result = CYBSP_RSLT_WIFI_SDIO_HS_SWITCH_FAILED;
+                    retval = CYBSP_RSLT_WIFI_SDIO_HS_SWITCH_FAILED;
                 }
             }
         }
     }
-    #endif /* !defined(CYHAL_UDB_SDIO) */
 
-    if (result == CY_RSLT_SUCCESS)
+    if (retval == 0)
     {
-        cyhal_sdio_cfg_t config = { .frequencyhal_hz = sdio_frequency, .block_size = 0 };
-        result = cyhal_sdio_configure(sdio_object, &config);
+        /* Set host controller bus width */
+        card->bus_io.bus_width = SDHC_BUS_WIDTH4BIT;
+
+        if (sdio_frequency == SDIO_FREQ_50MHZ) {
+            card->bus_io.timing = SDHC_TIMING_SDR25;
+		    card->bus_io.clock = SD_CLOCK_50MHZ;
+        } else {
+            card->bus_io.timing = SDHC_TIMING_SDR12;
+		    card->bus_io.clock = SD_CLOCK_25MHZ;
+        }
+
+        retval = sdhc_set_io(card->sdhc, &card->bus_io);
+        if (retval) {
+            printk("Setting SDHC data bus width failed: %d", retval);
+            return retval;
+        }
     }
-    return result;
+    return retval;
 }
 
 
@@ -448,25 +501,17 @@ static cy_rslt_t _cybsp_wifi_sdio_card_init(cyhal_sdio_t* sdio_object)
 //--------------------------------------------------------------------------------------------------
 static cy_rslt_t _cybsp_wifi_sdio_init_bus(void)
 {
-    cyhal_sdio_t* sdio_p = cybsp_get_wifi_sdio_obj();
-    cy_rslt_t result = _cybsp_wifi_sdio_card_init(sdio_p);
+    const struct device *dev = cybsp_get_wifi_sdio_obj();
+    cy_rslt_t result = _cybsp_wifi_sdio_card_init(dev);
     if (result == CY_RSLT_SUCCESS)
     {
-        // If the configurator reserved the pin, we need to release it here since
-        // WHD will try to reserve it again. WHD has no idea about configurators
-        // and expects it can reserve the pin that it is going to manage.
-        #if defined(CYCFG_WIFI_HOST_WAKE_ENABLED)
-        cyhal_resource_inst_t pinRsc = cyhal_utils_get_gpio_resource(CY_WIFI_HOST_WAKE_GPIO);
-        cyhal_hwmgr_free(&pinRsc);
-        #endif
-
         whd_sdio_config_t whd_sdio_config =
         {
             .sdio_1bit_mode        = WHD_FALSE,
             .high_speed_sdio_clock = WHD_FALSE,
             .oob_config            = OOB_CONFIG
         };
-        whd_bus_sdio_attach(whd_drv, &whd_sdio_config, sdio_p);
+        whd_bus_sdio_attach(whd_drv, &whd_sdio_config, dev);
     }
 
     return result;
@@ -567,60 +612,61 @@ cy_rslt_t cybsp_wifi_init_primary_extended(whd_interface_t* interface,
                                            whd_buffer_funcs_t* buffer_if,
                                            whd_netif_funcs_t* netif_if)
 {
-    #if defined(WIFI_MODE_M2M)
+#if defined(WIFI_MODE_M2M)
     cy_rslt_t result = CY_RSLT_SUCCESS;
-    #else
-    cy_rslt_t result = cyhal_gpio_init(CYBSP_WIFI_WL_REG_ON, CYHAL_GPIO_DIR_OUTPUT,
-                                       CYHAL_GPIO_DRIVE_PULLUP, false);
-    #endif
+#else
+    struct gpio_dt_spec reg_on = CYBSP_WIFI_WL_REG_ON;
+    cy_rslt_t result = -1;
 
+    if (device_is_ready(reg_on.port)) {
+        gpio_pin_configure_dt(&reg_on, GPIO_OUTPUT_INACTIVE);
+    }
+#endif
+
+    if (init_config == NULL)
+    {
+        init_config = &init_config_default;
+    }
+    if (resource_if == NULL)
+    {
+        resource_if = &resource_ops;
+    }
+    if (buffer_if == NULL)
+    {
+        buffer_if = &buffer_if_default;
+    }
+    if (netif_if == NULL)
+    {
+        netif_if = &netif_if_default;
+    }
+
+    result = whd_init(&whd_drv, init_config, resource_if, buffer_if, netif_if);
     if (result == CY_RSLT_SUCCESS)
     {
-        if (init_config == NULL)
-        {
-            init_config = &init_config_default;
-        }
-        if (resource_if == NULL)
-        {
-            resource_if = &resource_ops;
-        }
-        if (buffer_if == NULL)
-        {
-            buffer_if = &buffer_if_default;
-        }
-        if (netif_if == NULL)
-        {
-            netif_if = &netif_if_default;
-        }
+        result = _cybsp_wifi_bus_init();
 
-        result = whd_init(&whd_drv, init_config, resource_if, buffer_if, netif_if);
         if (result == CY_RSLT_SUCCESS)
         {
-            result = _cybsp_wifi_bus_init();
-
-            if (result == CY_RSLT_SUCCESS)
-            {
-                result = whd_wifi_on(whd_drv, interface);
-
-                if (result != CY_RSLT_SUCCESS)
-                {
-                    _cybsp_wifi_bus_detach();
-                }
-            }
+            result = whd_wifi_on(whd_drv, interface);
 
             if (result != CY_RSLT_SUCCESS)
             {
-                whd_deinit(*interface);
+                _cybsp_wifi_bus_detach();
             }
         }
 
-        #if !defined(WIFI_MODE_M2M)
         if (result != CY_RSLT_SUCCESS)
         {
-            cyhal_gpio_free(CYBSP_WIFI_WL_REG_ON);
+            whd_deinit(*interface);
         }
-        #endif
     }
+
+#if !defined(WIFI_MODE_M2M)
+    if (result != CY_RSLT_SUCCESS)
+    {
+        gpio_pin_set_dt(&reg_on, 0);
+    }
+#endif
 
     return result;
 }
@@ -645,9 +691,10 @@ cy_rslt_t cybsp_wifi_deinit(whd_interface_t interface)
     if (result == CY_RSLT_SUCCESS)
     {
         _cybsp_wifi_bus_detach();
-        #if !defined(WIFI_MODE_M2M)
-        cyhal_gpio_free(CYBSP_WIFI_WL_REG_ON);
-        #endif
+    #if !defined(WIFI_MODE_M2M)
+        struct gpio_dt_spec reg_on = CYBSP_WIFI_WL_REG_ON;
+        gpio_pin_set_dt(&reg_on, 0);
+    #endif
         // While deinit() takes an interface, it only uses it to get the underlying whd driver to
         // cleanup. As a result, we only need to call this on one of the interfaces.
         result = whd_deinit(interface);

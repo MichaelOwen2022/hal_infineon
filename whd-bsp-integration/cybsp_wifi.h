@@ -35,6 +35,7 @@
 #pragma once
 
 #include "cy_result.h"
+#include "cy_utils.h"
 #include "whd_wifi_api.h"
 
 #if defined(__cplusplus)
